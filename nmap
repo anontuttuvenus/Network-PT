@@ -21,173 +21,107 @@ for i in {1..8}; do
 done
 ```
 
-## Step 2: Create a scanning script
+
+ 
+## Step 1: Scan each set manually (one by one)
 
 ```bash
-cat > deep_scan.sh << 'EOF'
-#!/bin/bash
+# Create a directory for results
+mkdir scan_results
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Scan Set 1
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_1 -iL host_set_1.txt
 
-# Create results directory
-mkdir -p scan_results
+# Scan Set 2
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_2 -iL host_set_2.txt
 
-# Function to scan a host set
-scan_set() {
-    SET_NUM=$1
-    INPUT_FILE="host_set_${SET_NUM}.txt"
-    OUTPUT_PREFIX="scan_results/set_${SET_NUM}"
-    
-    echo -e "${GREEN}[+] Starting scan for Set ${SET_NUM}${NC}"
-    echo -e "${YELLOW}[*] Input: ${INPUT_FILE}${NC}"
-    
-    # Deep nmap scan
-    nmap -sV -sC -O -A -p- \
-         --open \
-         --min-rate 1000 \
-         -T4 \
-         -oA "${OUTPUT_PREFIX}" \
-         --stylesheet nmap.xsl \
-         -iL "${INPUT_FILE}" \
-         -v
-    
-    echo -e "${GREEN}[+] Completed scan for Set ${SET_NUM}${NC}"
-}
+# Scan Set 3
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_3 -iL host_set_3.txt
 
-# Export function for parallel execution
-export -f scan_set
-
-# Run scans in parallel (adjust -P based on your resources)
-# -P 4 means 4 sets running simultaneously
-seq 1 8 | parallel -P 4 scan_set {}
-
-echo -e "${GREEN}[+] All scans completed!${NC}"
-EOF
-
-chmod +x deep_scan.sh
+# ... and so on for all 8 sets
 ```
 
-## Step 3: Create analysis script
+**Or run them all at once in background:**
 
 ```bash
-cat > analyze_results.sh << 'EOF'
-#!/bin/bash
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-RESULTS_DIR="scan_results"
-REPORT_FILE="consolidated_report.txt"
-
-echo -e "${GREEN}=== Consolidated Scan Analysis ===${NC}" > $REPORT_FILE
-echo "Generated: $(date)" >> $REPORT_FILE
-echo "" >> $REPORT_FILE
-
-# Function to analyze each set
-analyze_set() {
-    SET_NUM=$1
-    SCAN_FILE="${RESULTS_DIR}/set_${SET_NUM}.nmap"
-    
-    if [ ! -f "$SCAN_FILE" ]; then
-        echo -e "${RED}[-] Set ${SET_NUM} scan not found${NC}"
-        return
-    fi
-    
-    echo -e "${BLUE}[*] Analyzing Set ${SET_NUM}...${NC}"
-    
-    echo "========================================" >> $REPORT_FILE
-    echo "SET ${SET_NUM} - CRITICAL FINDINGS" >> $REPORT_FILE
-    echo "========================================" >> $REPORT_FILE
-    
-    # Count hosts
-    HOSTS=$(grep -c "Nmap scan report for" "$SCAN_FILE")
-    echo "Total hosts scanned: $HOSTS" >> $REPORT_FILE
-    echo "" >> $REPORT_FILE
-    
-    # Critical services
-    echo "--- CRITICAL SERVICES ---" >> $REPORT_FILE
-    grep -E "21/tcp.*open.*ftp|23/tcp.*open.*telnet|445/tcp.*open|3389/tcp.*open.*rdp|5900/tcp.*open.*vnc" "$SCAN_FILE" | \
-        grep -B5 "open" | grep -E "Nmap scan report|open" >> $REPORT_FILE
-    echo "" >> $REPORT_FILE
-    
-    # Databases
-    echo "--- EXPOSED DATABASES ---" >> $REPORT_FILE
-    grep -E "3306/tcp.*mysql|5432/tcp.*postgresql|1433/tcp.*mssql|27017/tcp.*mongodb|1521/tcp.*oracle" "$SCAN_FILE" >> $REPORT_FILE
-    echo "" >> $REPORT_FILE
-    
-    # Web services
-    echo "--- WEB SERVICES ---" >> $REPORT_FILE
-    grep -E "80/tcp.*open.*http|443/tcp.*open.*https|8080/tcp.*open|8443/tcp.*open" "$SCAN_FILE" | head -20 >> $REPORT_FILE
-    echo "" >> $REPORT_FILE
-    
-    # Vulnerabilities/CVEs
-    echo "--- POTENTIAL VULNERABILITIES ---" >> $REPORT_FILE
-    grep -iE "vuln|cve-|vulnerable|outdated" "$SCAN_FILE" >> $REPORT_FILE
-    echo "" >> $REPORT_FILE
-    
-    echo "" >> $REPORT_FILE
-}
-
-# Analyze all sets
-for i in {1..8}; do
-    analyze_set $i
-done
-
-# Create summary
-echo -e "${GREEN}=== OVERALL SUMMARY ===${NC}" | tee -a $REPORT_FILE
-
-echo -e "\n${YELLOW}Critical Services Breakdown:${NC}"
-echo "Critical Services by Type:" >> $REPORT_FILE
-echo "- FTP: $(grep -h "21/tcp.*open.*ftp" ${RESULTS_DIR}/*.nmap | wc -l)" | tee -a $REPORT_FILE
-echo "- Telnet: $(grep -h "23/tcp.*open.*telnet" ${RESULTS_DIR}/*.nmap | wc -l)" | tee -a $REPORT_FILE
-echo "- SMB: $(grep -h "445/tcp.*open" ${RESULTS_DIR}/*.nmap | wc -l)" | tee -a $REPORT_FILE
-echo "- RDP: $(grep -h "3389/tcp.*open" ${RESULTS_DIR}/*.nmap | wc -l)" | tee -a $REPORT_FILE
-echo "- MySQL: $(grep -h "3306/tcp.*mysql" ${RESULTS_DIR}/*.nmap | wc -l)" | tee -a $REPORT_FILE
-echo "- PostgreSQL: $(grep -h "5432/tcp.*postgresql" ${RESULTS_DIR}/*.nmap | wc -l)" | tee -a $REPORT_FILE
-
-echo -e "\n${GREEN}[+] Full report saved to: ${REPORT_FILE}${NC}"
-echo -e "${GREEN}[+] Individual scans in: ${RESULTS_DIR}/${NC}"
-EOF
-
-chmod +x analyze_results.sh
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_1 -iL host_set_1.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_2 -iL host_set_2.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_3 -iL host_set_3.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_4 -iL host_set_4.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_5 -iL host_set_5.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_6 -iL host_set_6.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_7 -iL host_set_7.txt &
+nmap -sV -sC -O -A --open -p- -T4 -oA scan_results/set_8 -iL host_set_8.txt &
 ```
 
-## Step 4: Run everything
+## Step 2: After scans complete, manually check each file
 
 ```bash
-# If you don't have GNU parallel installed:
-# Ubuntu/Debian: sudo apt-get install parallel
-# CentOS/RHEL: sudo yum install parallel
-# macOS: brew install parallel
+# Go to results directory
+cd scan_results
 
-# Execute the scan
-./deep_scan.sh
+# Look for sensitive stuff in Set 1
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_1.nmap > set_1_sensitive.txt
 
-# After scans complete, analyze results
-./analyze_results.sh
+# Look for sensitive stuff in Set 2
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_2.nmap > set_2_sensitive.txt
 
-# View the consolidated report
-less consolidated_report.txt
+# Do the same for all 8 sets
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_3.nmap > set_3_sensitive.txt
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_4.nmap > set_4_sensitive.txt
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_5.nmap > set_5_sensitive.txt
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_6.nmap > set_6_sensitive.txt
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_7.nmap > set_7_sensitive.txt
+grep -i "ftp\|telnet\|smb\|rdp\|mysql\|vnc" set_8.nmap > set_8_sensitive.txt
 ```
 
-## Alternative: Run scans sequentially (if no parallel)
+## Step 3: Combine all sensitive findings
 
 ```bash
-# Sequential version
-for i in {1..8}; do
-    echo "[+] Scanning Set $i..."
-    nmap -sV -sC -O -A -p- --open --min-rate 1000 -T4 \
-         -oA "scan_results/set_${i}" \
-         --stylesheet nmap.xsl \
-         -iL "host_set_${i}.txt"
-done
+# Combine all sensitive findings into one file
+cat set_*_sensitive.txt > all_sensitive_findings.txt
+
+# View it
+less all_sensitive_findings.txt
+```
+
+## Step 4: Manual review checklist
+
+Open each `set_X_sensitive.txt` file and look for:
+
+**🔴 Critical (Fix immediately):**
+- `21/tcp` - FTP (especially if anonymous login)
+- `23/tcp` - Telnet (unencrypted)
+- `445/tcp` - SMB (check for SMBv1)
+- `3389/tcp` - RDP (remote desktop exposed)
+
+**🟡 High Priority:**
+- `3306/tcp` - MySQL database
+- `5432/tcp` - PostgreSQL database
+- `1433/tcp` - MS SQL database
+- `5900/tcp` - VNC
+
+**🟢 Review:**
+- `22/tcp` - SSH (check version)
+- `80/tcp`, `443/tcp` - Web servers
+- `8080/tcp`, `8443/tcp` - Web admin panels
+
+## Quick commands to find specific things:
+
+```bash
+# Find all FTP servers
+grep "21/tcp" scan_results/*.nmap
+
+# Find all Telnet servers
+grep "23/tcp" scan_results/*.nmap
+
+# Find all SMB/Windows shares
+grep "445/tcp" scan_results/*.nmap
+
+# Find all databases
+grep -E "3306|5432|1433|27017" scan_results/*.nmap
+
+# Find all RDP servers
+grep "3389/tcp" scan_results/*.nmap
 ```
 
