@@ -125,3 +125,43 @@ grep -E "3306|5432|1433|27017" scan_results/*.nmap
 grep "3389/tcp" scan_results/*.nmap
 ```
 
+
+
+----&&&&
+
+
+cat set_*.nmap | \
+awk '
+/^Nmap scan report for/ {
+    if (ip != "" && length(ports) > 0) {
+        printf "%s ", ip
+        for (i=1; i<=length(ports); i++) {
+            if (i>1) printf ","
+            printf "%s", ports[i]
+        }
+        printf "\n"
+    }
+    ip = $5
+    delete ports
+    next
+}
+
+/^[ \t]*[0-9]+\/(tcp|udp)/ && /open/ {
+    split($1, a, "/")
+    if (a[1] ~ /^[0-9]+$/) {
+        ports[length(ports)+1] = a[1]
+    }
+}
+
+END {
+    if (ip != "" && length(ports) > 0) {
+        printf "%s ", ip
+        for (i=1; i<=length(ports); i++) {
+            if (i>1) printf ","
+            printf "%s", ports[i]
+        }
+        printf "\n"
+    }
+}' | \
+sort -V > open-ports-all.txt
+
