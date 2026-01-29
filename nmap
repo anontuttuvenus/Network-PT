@@ -165,3 +165,7 @@ END {
 }' | \
 sort -V > open-ports-all.txt
 
+
+----
+curl -s "https://crt.sh/?q=%25.DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | sort -u | httpx -silent -status-code -ip -threads 50
+
