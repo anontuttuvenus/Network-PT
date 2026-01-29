@@ -1,0 +1,200 @@
+#!/bin/bash
+# Storybook Security Scanner
+# Automated tool to check public Storybook instances for sensitive data
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+URL=$1
+
+if [ -z "$URL" ]; then
+    echo "Usage: $0 <storybook_url>"
+    echo "Example: $0 https://example.com/storybook/"
+    exit 1
+fi
+
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║          Storybook Security Scanner v1.0                       ║${NC}"
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo ""
+echo -e "${YELLOW}[*] Target: $URL${NC}"
+echo ""
+
+# Create scan directory
+SCAN_DIR="storybook_scan_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$SCAN_DIR"
+cd "$SCAN_DIR"
+
+echo -e "${GREEN}[+] Step 1: Downloading Storybook files...${NC}"
+wget -r -np -k -l 2 -A "*.js,*.jsx,*.ts,*.tsx,*.json,*.html" "$URL" -q --show-progress
+
+# Extract domain from URL
+DOMAIN=$(echo $URL | awk -F[/:] '{print $4}')
+
+if [ ! -d "$DOMAIN" ]; then
+    echo -e "${RED}[-] Error: Could not download files. Check URL and try again.${NC}"
+    exit 1
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 2: Searching for API Keys...${NC}"
+API_KEYS=$(grep -r -i -h -o -E "(api[_-]?key|apikey|api-key)['\":\s=]+['\"]?[a-zA-Z0-9_\-]{20,}['\"]?" "$DOMAIN/" 2>/dev/null | head -20)
+if [ ! -z "$API_KEYS" ]; then
+    echo -e "${RED}[!] FOUND API KEYS:${NC}"
+    echo "$API_KEYS"
+else
+    echo -e "${GREEN}[✓] No obvious API keys found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 3: Searching for AWS Credentials...${NC}"
+AWS_KEYS=$(grep -r -h -E "(AKIA[0-9A-Z]{16}|aws_access_key_id|aws_secret_access_key)" "$DOMAIN/" 2>/dev/null)
+if [ ! -z "$AWS_KEYS" ]; then
+    echo -e "${RED}[!] FOUND AWS CREDENTIALS:${NC}"
+    echo "$AWS_KEYS"
+else
+    echo -e "${GREEN}[✓] No AWS credentials found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 4: Searching for Bearer Tokens...${NC}"
+TOKENS=$(grep -r -h -o -E "Bearer [a-zA-Z0-9_\-\.]{20,}" "$DOMAIN/" 2>/dev/null | head -10)
+if [ ! -z "$TOKENS" ]; then
+    echo -e "${RED}[!] FOUND BEARER TOKENS:${NC}"
+    echo "$TOKENS"
+else
+    echo -e "${GREEN}[✓] No Bearer tokens found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 5: Searching for Database Connection Strings...${NC}"
+DB_STRINGS=$(grep -r -h -i -E "(mongodb://|mysql://|postgresql://|jdbc:|redis://)" "$DOMAIN/" 2>/dev/null)
+if [ ! -z "$DB_STRINGS" ]; then
+    echo -e "${RED}[!] FOUND DATABASE CONNECTIONS:${NC}"
+    echo "$DB_STRINGS"
+else
+    echo -e "${GREEN}[✓] No database connections found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 6: Searching for Internal URLs...${NC}"
+INTERNAL_URLS=$(grep -r -h -o -E "https?://[a-zA-Z0-9./?=_%:-]*" "$DOMAIN/" 2>/dev/null | \
+    grep -E "(internal|dev|stage|staging|test|admin|localhost|127\.0\.0\.1|10\.|172\.|192\.168\.)" | \
+    sort -u | head -20)
+if [ ! -z "$INTERNAL_URLS" ]; then
+    echo -e "${YELLOW}[!] FOUND INTERNAL/DEV URLS:${NC}"
+    echo "$INTERNAL_URLS"
+else
+    echo -e "${GREEN}[✓] No obvious internal URLs found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 7: Searching for Email Addresses...${NC}"
+EMAILS=$(grep -r -h -o -E "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}" "$DOMAIN/" 2>/dev/null | \
+    grep -v "example.com\|test.com\|user@\|admin@localhost" | \
+    sort -u | head -20)
+if [ ! -z "$EMAILS" ]; then
+    echo -e "${YELLOW}[!] FOUND EMAIL ADDRESSES:${NC}"
+    echo "$EMAILS"
+else
+    echo -e "${GREEN}[✓] No email addresses found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 8: Searching for Private Keys...${NC}"
+PRIVATE_KEYS=$(grep -r -h -E "(BEGIN.*PRIVATE KEY|private.*key.*=)" "$DOMAIN/" 2>/dev/null | head -5)
+if [ ! -z "$PRIVATE_KEYS" ]; then
+    echo -e "${RED}[!] FOUND PRIVATE KEY REFERENCES:${NC}"
+    echo "$PRIVATE_KEYS"
+else
+    echo -e "${GREEN}[✓] No private keys found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 9: Searching for Passwords...${NC}"
+PASSWORDS=$(grep -r -h -i -E "(password|passwd)['\":\s=]+['\"]?[a-zA-Z0-9_\-!@#\$%]{6,}['\"]?" "$DOMAIN/" 2>/dev/null | \
+    grep -v "password123\|Password\|PasswordField\|setPassword" | head -10)
+if [ ! -z "$PASSWORDS" ]; then
+    echo -e "${RED}[!] FOUND PASSWORD REFERENCES:${NC}"
+    echo "$PASSWORDS"
+else
+    echo -e "${GREEN}[✓] No obvious passwords found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 10: Checking for Sensitive Files...${NC}"
+SENSITIVE_FILES=$(find "$DOMAIN/" -type f \( -name "*.env*" -o -name "*secret*" -o -name "*config.json" -o -name "*.pem" -o -name "*.key" \) 2>/dev/null)
+if [ ! -z "$SENSITIVE_FILES" ]; then
+    echo -e "${YELLOW}[!] FOUND SENSITIVE FILES:${NC}"
+    echo "$SENSITIVE_FILES"
+else
+    echo -e "${GREEN}[✓] No sensitive files found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 11: Extracting API Endpoints...${NC}"
+API_ENDPOINTS=$(grep -r -h -o -E "(/api/|/graphql|/v[0-9]+/)[a-zA-Z0-9/_\-]+" "$DOMAIN/" 2>/dev/null | sort -u | head -30)
+if [ ! -z "$API_ENDPOINTS" ]; then
+    echo -e "${BLUE}[i] FOUND API ENDPOINTS:${NC}"
+    echo "$API_ENDPOINTS" | head -20
+    echo "... (see full list in api_endpoints.txt)"
+    echo "$API_ENDPOINTS" > api_endpoints.txt
+else
+    echo -e "${GREEN}[✓] No API endpoints found${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}[+] Step 12: Checking Dependencies (package.json)...${NC}"
+PKG_JSON=$(find "$DOMAIN/" -name "package.json" 2>/dev/null | head -1)
+if [ ! -z "$PKG_JSON" ]; then
+    echo -e "${BLUE}[i] Found package.json at: $PKG_JSON${NC}"
+    echo -e "${YELLOW}[!] Check for vulnerable dependencies:${NC}"
+    echo "    Run: npm audit"
+else
+    echo -e "${YELLOW}[!] No package.json found${NC}"
+fi
+
+# Generate summary report
+echo ""
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║                    SCAN SUMMARY                                ║${NC}"
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo ""
+
+REPORT="scan_report.txt"
+{
+    echo "Storybook Security Scan Report"
+    echo "=============================="
+    echo "Target: $URL"
+    echo "Date: $(date)"
+    echo ""
+    echo "FINDINGS SUMMARY:"
+    echo "----------------"
+    [ ! -z "$API_KEYS" ] && echo "[CRITICAL] API Keys found" || echo "[OK] No API keys found"
+    [ ! -z "$AWS_KEYS" ] && echo "[CRITICAL] AWS Credentials found" || echo "[OK] No AWS credentials found"
+    [ ! -z "$TOKENS" ] && echo "[HIGH] Bearer tokens found" || echo "[OK] No bearer tokens found"
+    [ ! -z "$DB_STRINGS" ] && echo "[CRITICAL] Database connections found" || echo "[OK] No database connections found"
+    [ ! -z "$PRIVATE_KEYS" ] && echo "[CRITICAL] Private keys found" || echo "[OK] No private keys found"
+    [ ! -z "$PASSWORDS" ] && echo "[HIGH] Password references found" || echo "[OK] No passwords found"
+    [ ! -z "$INTERNAL_URLS" ] && echo "[MEDIUM] Internal URLs found" || echo "[OK] No internal URLs found"
+    [ ! -z "$EMAILS" ] && echo "[LOW] Email addresses found" || echo "[OK] No email addresses found"
+    [ ! -z "$API_ENDPOINTS" ] && echo "[INFO] API endpoints discovered" || echo "[OK] No API endpoints found"
+    [ ! -z "$SENSITIVE_FILES" ] && echo "[MEDIUM] Sensitive files found" || echo "[OK] No sensitive files found"
+    echo ""
+    echo "Full details available in: $SCAN_DIR"
+} | tee "$REPORT"
+
+echo ""
+echo -e "${GREEN}[+] Scan complete!${NC}"
+echo -e "${YELLOW}[*] Results saved in: $(pwd)${NC}"
+echo -e "${YELLOW}[*] Report saved as: $REPORT${NC}"
+echo ""
+echo -e "${BLUE}[i] Next Steps:${NC}"
+echo "    1. Review the findings above"
+echo "    2. Check downloaded files in: $DOMAIN/"
+echo "    3. Report findings responsibly to the security team"
+echo "    4. Do NOT exploit any discovered credentials"
+echo ""
