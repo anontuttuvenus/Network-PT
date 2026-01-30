@@ -184,3 +184,10 @@ while read -r ip; do
     whois -h whois.arin.net "$ip" | grep -iE '^OrgName:|Organization:|NetName:|Customer:|^Name:' | head -n 4
     echo "----------------------------------------"
 done < "$1"
+
+
+
+---&&&&
+
+
+sed -E '/^Ip:/{s/^Ip: //; h;}; /^Organization:/{s/^Organization: //; H; x; s/\n/ | /; p;}; d' current.txt > clean.txt
