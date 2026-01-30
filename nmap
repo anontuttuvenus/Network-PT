@@ -169,3 +169,16 @@ sort -V > open-ports-all.txt
 ----
 curl -s "https://crt.sh/?q=%25.DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | sort -u | httpx -silent -status-code -ip -threads 50
 
+-----
+while read -r ip; do
+    echo "IP: $ip"
+    curl -s "https://rdap.arin.net/registry/ip/$ip" | \
+      jq -r '
+        # Try to get name from entities (often the org)
+        (.entities[]? | select(.roles? | index("registrant")) | .vcardArray[1][] | select(.[0] == "fn") | .[3]) // 
+        (.entities[]? | .vcardArray[1][] | select(.[0] == "org") | .[3]) // 
+        "Not found"
+      '
+    echo ""
+done < your_ips.txt
+
