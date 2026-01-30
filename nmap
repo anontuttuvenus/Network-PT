@@ -191,3 +191,13 @@ done < "$1"
 
 
 sed -E '/^Ip:/{s/^Ip: //; h;}; /^Organization:/{s/^Organization: //; H; x; s/\n/ | /; p;}; d' current.txt > clean.txt
+
+
+
++$++$+$($($($
+
+
+awk '  
+  NF==1 { ip = $1; next }  
+  $1 == "Name" || $0 ~ /^ / { print ip " | " $0; }  
+' yourfile.txt
