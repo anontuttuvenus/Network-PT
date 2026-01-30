@@ -170,22 +170,17 @@ sort -V > open-ports-all.txt
 curl -s "https://crt.sh/?q=%25.DOMAIN&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | sort -u | httpx -silent -status-code -ip -threads 50
 
 -----
+#!/usr/bin/env bash
+
+if [ ! -f "$1" ]; then
+    echo "Usage: $0 iplist.txt"
+    echo "File not found or not specified."
+    exit 1
+fi
+
 while read -r ip; do
+    [[ -z "$ip" ]] && continue
     echo "IP: $ip"
-    curl -s "https://rdap.arin.net/registry/ip/$ip" | \
-      jq -r '
-        # Try to get name from entities (often the org)
-        (.entities[]? | select(.roles? | index("registrant")) | .vcardArray[1][] | select(.[0] == "fn") | .[3]) // 
-        (.entities[]? | .vcardArray[1][] | select(.[0] == "org") | .[3]) // 
-        "Not found"
-      '
-    echo ""
-done < your_ips.txt
-
-
-
-&-&&&&&&
-
-
-cat your_ips.txt | xargs -P 10 -n 1 -I {} sh -c 'echo "=== {} ==="; whois -h whois.arin.net "{}" | grep -iE "^OrgName:|^Organization:|^CustName:"'
-
+    whois -h whois.arin.net "$ip" | grep -iE '^OrgName:|Organization:|NetName:|Customer:|^Name:' | head -n 4
+    echo "----------------------------------------"
+done < "$1"
